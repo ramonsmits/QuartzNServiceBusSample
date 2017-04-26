@@ -1,4 +1,7 @@
-﻿using System.Security.Principal;
+﻿using System;
+using System.Security.Principal;
+using System.Threading.Tasks;
+using Common.Logging;
 using NServiceBus;
 using NServiceBus.Installation;
 using Quartz;
@@ -6,9 +9,10 @@ using Quartz;
 namespace QuartzNServiceBusSample
 {
     public abstract class ScheduleSetup<TJob> 
-        : IWantToRunAtStartup 
+        : IWantToRunWhenEndpointStartsAndStops
         where TJob : IJob
     {
+        private readonly ILog Log = LogManager.GetLogger<QuartzService>();
         private readonly IScheduler _scheduler;
 
         protected ScheduleSetup(IScheduler scheduler)
@@ -18,8 +22,9 @@ namespace QuartzNServiceBusSample
 
         protected abstract TriggerBuilder CreateTrigger();
 
-        public void Run()
+        public Task Start(IMessageSession session)
         {
+            Log.Debug("Starting");
             var typeOfJob = typeof(TJob);
             var jobName = typeOfJob.Name;
             var jobKey = new JobKey(jobName);
@@ -37,10 +42,14 @@ namespace QuartzNServiceBusSample
 
                 _scheduler.RescheduleJob(new TriggerKey(triggerName), trigger);
             }
+            Log.Debug("Started");
+            return Task.CompletedTask;
         }
 
-        public void Stop()
+        public Task Stop(IMessageSession session)
         {
+            Log.Debug("Stop");
+            return Task.CompletedTask;
         }
     }
 }

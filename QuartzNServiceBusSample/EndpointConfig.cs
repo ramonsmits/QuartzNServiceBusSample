@@ -1,45 +1,60 @@
-﻿using NServiceBus;
+﻿using System;
+using System.Data.SqlClient;
+using NServiceBus;
 using NServiceBus.ObjectBuilder;
 using Quartz;
 using Quartz.Impl;
 using Quartz.Spi;
+using QuartzNServiceBusSample.Messages;
 
 namespace QuartzNServiceBusSample
 {
     public class EndpointConfig : IConfigureThisEndpoint, AsA_Client
     {
-    }
-
-    public class SendOnly : IWantCustomInitialization
-    {
-        public void Init()
+        public void Customize(EndpointConfiguration configuration)
         {
-            Configure.Instance
-                .SendOnly();
-        }
-    }
+            Console.Title = "Scheduler";
 
-    public class QuartzConfiguration : IWantCustomInitialization
-    {
-        public void Init()
-        {
-            var configurer = Configure.Instance.Configurer;
-            configurer
-                .ConfigureComponent<IJobFactory>(
-                    () => new QuartzJobFactory(Configure.Instance.Builder),
-                    DependencyLifecycle.InstancePerUnitOfWork)
-                ;
-            configurer.ConfigureComponent<IScheduler>(() =>
+            log4net.Config.XmlConfigurator.Configure();
+            log4net.LogManager.GetLogger("Test").Info("Test");
+
+            NServiceBus.Logging.LogManager.Use<Log4NetFactory>();
+
+            configuration.UsePersistence<InMemoryPersistence>();
+            var transport = configuration.UseTransport<MsmqTransport>();
+            var routing = transport.Routing();
+            routing.RouteToEndpoint(typeof(DoSomething).Assembly, "QuartzNServiceBusSample.Host");
+            configuration.SendFailedMessagesTo("error");
+
+            configuration.SendOnly();
+
+            configuration.RegisterComponents(components =>
             {
-                var factoryx = new StdSchedulerFactory();
-                factoryx.Initialize();
+                components.ConfigureComponent<IJobFactory>(builder => new QuartzJobFactory(builder), DependencyLifecycle.InstancePerUnitOfWork);
 
-                var scheduler = factoryx.GetScheduler();
-                scheduler.JobFactory = Configure.Instance.Builder.Build<IJobFactory>();
-                return scheduler;
+                components.ConfigureComponent<IScheduler>(builder =>
+                {
+                    var factoryx = new StdSchedulerFactory();
+                    factoryx.Initialize();
 
-            }, DependencyLifecycle.SingleInstance);
-            configurer.ConfigureComponent<DoSomethingJob>(DependencyLifecycle.InstancePerUnitOfWork);
+                    var scheduler = factoryx.GetScheduler();
+                    scheduler.JobFactory = builder.Build<IJobFactory>();
+                    return scheduler;
+
+                }, DependencyLifecycle.SingleInstance);
+
+                components.ConfigureComponent<DoSomethingJob>(DependencyLifecycle.InstancePerUnitOfWork);
+
+                components.ConfigureComponent<QuartzService>(DependencyLifecycle.SingleInstance);
+                components.ConfigureComponent<IMessageSession>(b =>
+                    {
+
+                        var s = b.Build<QuartzService>().Session;
+                        if (s == null) throw new InvalidOperationException();
+                        return s;
+                    }
+                    , DependencyLifecycle.SingleInstance);
+            });
         }
     }
 }
